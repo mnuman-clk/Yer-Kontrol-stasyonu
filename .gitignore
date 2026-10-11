@@ -1,0 +1,24 @@
+# Eski çalışmalar
+calismalarim/
+
+# Python Önbellek Dosyaları
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller / Exe Derleme Klasörleri
+build/
+dist/
+*.spec
+
+# Uygulama Verileri (Haritalar ve Görevler)
+offline_maps/
+saved_missions/
+
+# Log dosyaları (varsa)
+*.log
+
+# Çevre Değişkenleri ve Sanal Ortamlar
+.env
+venv/
+env/

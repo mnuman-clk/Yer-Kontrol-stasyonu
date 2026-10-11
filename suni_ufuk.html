@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { 
+            background: #1f232a; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            margin: 0; 
+            color: white; 
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        .container { display: flex; gap: 40px; align-items: center; }
+        .hud-box { display: flex; flex-direction: column; align-items: center; }
+        
+        /* Suni Ufuk Çerçevesi */
+        canvas { 
+            border: 4px solid #343b47; 
+            border-radius: 50%; 
+            background-color: #3498db; /* Gökyüzü Mavisi */
+            box-shadow: 0 0 15px rgba(0,0,0,0.5);
+        }
+        
+        /* Değer Yazıları */
+        .value { font-size: 20px; font-weight: bold; margin-top: 15px; color: #ecf0f1; background: #2c313c; padding: 5px 15px; border-radius: 5px;}
+        .alt-text { color: #2ecc71; font-size: 24px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="hud-box">
+            <canvas id="horizon" width="300" height="300"></canvas>
+            <div class="value" id="pitch-roll-val">Pitch: 0° | Roll: 0°</div>
+        </div>
+
+        <div class="hud-box">
+            <div style="width: 60px; height: 300px; border: 4px solid #343b47; background: #2c313c; position: relative; border-radius: 5px; overflow: hidden;">
+                <div id="alt-bar" style="position: absolute; bottom: 0; width: 100%; height: 0%; background: #2ecc71; transition: height 0.2s ease-out;"></div>
+            </div>
+            <div class="value alt-text" id="alt-val">0.0 m</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('horizon');
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width, h = canvas.height;
+
+        function drawHUD(pitch, roll, alt) {
+            ctx.clearRect(0, 0, w, h);
+            ctx.save();
+            
+            // Merkez noktasına git ve yuvarlanma (Roll) açısı kadar döndür
+            ctx.translate(w/2, h/2);
+            ctx.rotate(roll * Math.PI / 180);
+            
+            // Yunuslama (Pitch) açısına göre toprağı aşağı yukarı kaydır (1 derece = 3 piksel)
+            let pitchOffset = pitch * 3;
+            
+            // Toprağı (Kahverengi) Çiz
+            ctx.fillStyle = '#8B4513'; 
+            ctx.fillRect(-w, pitchOffset, w*2, h*2);
+            
+            // Ufuk Çizgisini (Beyaz) Çiz
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(-w, pitchOffset);
+            ctx.lineTo(w, pitchOffset);
+            ctx.stroke();
+
+            // Pitch Çizgilerini Çiz
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.fillStyle = '#FFF';
+            ctx.font = '14px Arial';
+            ctx.textAlign = 'right';
+            for(let i = -60; i <= 60; i += 10) {
+                if (i === 0) continue;
+                let y = pitchOffset - (i * 3);
+                let lineW = (i % 30 === 0) ? 60 : 30; // 30 derecelerde uzun çizgi
+                
+                ctx.beginPath();
+                ctx.moveTo(-lineW/2, y);
+                ctx.lineTo(lineW/2, y);
+                ctx.stroke();
+                
+                // Derece yazılarını ekle
+                if (i % 30 === 0) {
+                    ctx.fillText(i, -lineW/2 - 8, y + 5);
+                    ctx.textAlign = 'left';
+                    ctx.fillText(i, lineW/2 + 8, y + 5);
+                    ctx.textAlign = 'right';
+                }
+            }
+            ctx.restore();
+
+            // Uçağın Sabit Merkez İşaretini (Sarı Çapraz) Çiz
+            ctx.strokeStyle = '#f1c40f'; // Parlak Sarı
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(w/2 - 40, h/2);
+            ctx.lineTo(w/2 - 15, h/2);
+            ctx.lineTo(w/2, h/2 + 15);
+            ctx.lineTo(w/2 + 15, h/2);
+            ctx.lineTo(w/2 + 40, h/2);
+            ctx.stroke();
+            
+            // Metin Değerlerini Güncelle
+            document.getElementById('pitch-roll-val').innerText = `Pitch: ${pitch.toFixed(1)}° | Roll: ${roll.toFixed(1)}°`;
+            document.getElementById('alt-val').innerText = `${alt.toFixed(1)} m`;
+            
+            // İrtifa Çubuğunu Güncelle (Maksimum 100 metreye göre orantılı görsel)
+            let altPercent = Math.min(Math.max((alt / 100) * 100, 0), 100);
+            document.getElementById('alt-bar').style.height = altPercent + '%';
+        }
+
+        // İlk açılışta düz çiz
+        drawHUD(0, 0, 0);
+
+        // Python'un çağıracağı ana fonksiyon
+        function updateHUD(pitch, roll, alt) {
+            drawHUD(pitch, roll, alt);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+
+<link rel="stylesheet" href="offline_lib/leaflet.css" />
+<script src="offline_lib/leaflet.js"></script>
+
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+}
+#map {
+    width: 100%;
+    height: 100%;
+}
+
+.polygon-label {
+    background: #e74c3c;
+    color: white;
+    border: none;
+    font-weight: bold;
+    font-size: 10px;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="map"></div>
+
+<script>
+
+var pistLat = 40.9771;
+var pistLon = 28.8139;
+
+var map = L.map('map').setView([pistLat, pistLon], 18);
+
+L.tileLayer(
+'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+{
+    maxZoom: 19
+}).addTo(map);
+
+var waypoints = [];
+var markers = [];
+var missionLine = null;
+
+var vehiclePositionMarker = null;
+var isInitialCenterDone = false;
+
+function setCenter(lat, lon) {
+    lat = parseFloat(lat);
+    lon = parseFloat(lon);
+
+    if (isNaN(lat) || isNaN(lon)) {
+        return;
+    }
+
+    if (vehiclePositionMarker === null) {
+        vehiclePositionMarker = L.circleMarker([lat, lon], {
+            radius: 7,
+            color: '#ffffff',
+            weight: 2,
+            fillColor: '#00a8ff',
+            fillOpacity: 1
+        }).addTo(map);
+
+        vehiclePositionMarker.bindTooltip("Araç Konumu");
+    } else {
+        vehiclePositionMarker.setLatLng([lat, lon]);
+    }
+
+    if (!isInitialCenterDone) {
+        map.setView([lat, lon], 18);
+        isInitialCenterDone = true;
+    }
+}
+
+function resetCenter(){
+    isInitialCenterDone=false;
+    map.setView([pistLat,pistLon],18);
+}
+
+//çift tıklama ile waypoint ekleme
+map.on('dblclick', function(e) {
+
+    var lat = e.latlng.lat;
+    var lon = e.latlng.lng;
+
+    addWaypoint(lat, lon);
+
+});
+
+//waypoint ekleme fonksiyonu
+function addWaypoint(lat, lon) {
+    var wpNumber = waypoints.length + 1;
+
+    // YENİ: Kod ile çizilmiş Waypoint ikonu
+    var wpIcon = L.divIcon({
+        className: 'custom-wp-icon',
+        html: '<div style="background-color: #f1c40f; width: 16px; height: 16px; border-radius: 50%; border: 3px solid #e67e22; box-shadow: 0 0 5px black;"></div>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11]
+    });
+
+    // Ikonu marker'a tanımladık
+    var marker = L.marker([lat, lon], {icon: wpIcon, draggable:true})
+        .addTo(map)
+        .bindPopup("WP " + wpNumber);
+
+    marker.mode = "WAYPOINT";
+    marker.alt = 20;
+    marker.survey_kind = "WAYPOINT";
+    marker.survey_pass = 0;
+    marker.acceptance_radius_m = 0;
+    marker.is_survey_waypoint = false;
+
+    markers.push(marker);
+    waypoints.push([lat, lon]);
+    
+    marker.on('dragend', function(e) {
+        updatePolyline();
+    });
+
+    marker.on('contextmenu', function() {
+        map.removeLayer(marker);
+        var index = markers.indexOf(marker);
+        if (index > -1) {
+            markers.splice(index, 1);
+            waypoints.splice(index, 1);
+        }
+        updatePolyline();
+    });
+    updatePolyline();
+}
+
+//waypointleri bağlayan line fonksiyonu
+function updatePolyline() {
+
+    var latlngs = [];
+
+    markers.forEach(function(marker) {
+        latlngs.push(marker.getLatLng());
+    });
+
+    // Eski waypoints dizisini de marker sırasıyla eşit tut.
+    // Böylece grid araya eklendiğinde sağ tıkla silme ve yeni WP
+    // numarası yanlış indeksi kullanmaz.
+    waypoints = markers.map(function(marker) {
+        var position = marker.getLatLng();
+        return [position.lat, position.lng];
+    });
+
+    if (missionLine != null) {
+        map.removeLayer(missionLine);
+    }
+
+    missionLine = L.polyline(latlngs, {color:'yellow'}).addTo(map);
+}
+
+//clearMission fonksiyonu
+function clearMission() {
+
+    markers.forEach(function(marker) {
+        map.removeLayer(marker);
+    });
+
+    if (missionLine != null) {
+        map.removeLayer(missionLine);
+        missionLine = null;
+    }
+
+    markers = [];
+    waypoints = [];
+    if (typeof clearFixedWingSurveyPreviewLayers === "function") {
+        clearFixedWingSurveyPreviewLayers();
+    }
+}
+
+function loadMissionFromPython(data) {
+    try {
+        clearMission();
+
+        if (!Array.isArray(data)) {
+            console.error("loadMissionFromPython: data array değil");
+            return;
+        }
+
+        data.forEach(function(wp) {
+            var lat = parseFloat(wp.lat);
+            var lon = parseFloat(wp.lon);
+            var alt = parseFloat(wp.alt || 10);
+            var mode = wp.mode || "WAYPOINT";
+
+            if (isNaN(lat) || isNaN(lon)) {
+                return;
+            }
+
+            var marker = L.marker([lat, lon], {
+                draggable: true
+            }).addTo(map);
+
+            marker.mode = mode;
+            marker.alt = alt;
+            marker.survey_kind = String(
+                wp.survey_kind || "WAYPOINT"
+            ).toUpperCase();
+            marker.survey_pass = Number(
+                wp.survey_pass || 0
+            );
+            marker.acceptance_radius_m = Number(
+                wp.acceptance_radius_m || 0
+            );
+            marker.is_survey_waypoint = Boolean(
+                wp.is_survey_waypoint
+            ) || marker.survey_kind !== "WAYPOINT";
+
+            marker.bindPopup(
+                "Mode: " + mode +
+                "<br>Alt: " + alt +
+                "<br>Lat: " + lat.toFixed(7) +
+                "<br>Lon: " + lon.toFixed(7)
+            );
+
+            marker.on("dragend", function() {
+                updatePolyline();
+            });
+
+            markers.push(marker);
+        });
+
+        updatePolyline();
+
+        if (markers.length > 0) {
+            var first = markers[0].getLatLng();
+            map.setView([first.lat, first.lng], map.getZoom());
+        }
+
+    } catch (e) {
+        console.error("loadMissionFromPython hata:", e);
+    }
+}
+
+//veri hazırlama için olan fonksiyon
+function getMissionData() {
+    var mission = [];
+
+    markers.forEach(function(marker) {
+        var pos = marker.getLatLng();
+        var altitude = Number(marker.alt);
+        var acceptanceRadius = Number(
+            marker.acceptance_radius_m
+        );
+
+        mission.push({
+            lat: pos.lat,
+            lon: pos.lng,
+
+            alt: Number.isFinite(altitude)
+                ? altitude
+                : 20,
+
+            mode: marker.mode || "WAYPOINT",
+
+            survey_kind:
+                marker.survey_kind || "WAYPOINT",
+
+            survey_pass:
+                marker.survey_pass || 0,
+
+            acceptance_radius_m:
+                Number.isFinite(acceptanceRadius)
+                ? acceptanceRadius
+                : 0,
+
+            is_survey_waypoint:
+                marker.is_survey_waypoint === true
+        });
+    });
+
+    return mission;
+}
+
+//lat,lon değişim fonksiyonu
+function update_location(index,lat,lon){
+    if (markers[index]){
+        markers[index].setLatLng([lat,lon]);
+        updatePolyline();
+    }
+}
+//altitude değişim fonksiyonu
+function updateAltitude(index, alt) {
+
+    if (markers[index]) {
+        markers[index].alt = alt;
+    }
+}
+
+var polygonMode    = false;
+var polygonPoints  = [];   // [{lat, lng}, ...]
+var polygonMarkers = [];   // Leaflet marker listesi
+var polygonLayer   = null; // Çizili polygon şekli
+
+var vtolBlueLayer = null;
+var vtolScanLayers = [];
+// Fixed-wing tarama önizlemesine ait Leaflet katmanları.
+// Yeni plan oluşturulduğunda eskileri topluca temizlemek için tutulur.
+var fixedWingSurveyLayers = [];
+
+// Python tarafından çağrılır: polygon modu aç/kapat
+function setPolygonMode(enabled) {
+    polygonMode = Boolean(enabled);
+
+    console.log(
+        "[POLYGON MODE]",
+        polygonMode ? "ACIK" : "KAPALI"
+    );
+}
+
+function clearPolygonDrawingOnly() {
+    polygonMarkers.forEach(function(marker) {
+        if (map.hasLayer(marker)) {
+            map.removeLayer(marker);
+        }
+    });
+
+    polygonMarkers = [];
+
+    if (polygonLayer !== null) {
+        if (map.hasLayer(polygonLayer)) {
+            map.removeLayer(polygonLayer);
+        }
+
+        polygonLayer = null;
+    }
+}
+
+function redrawPolygon() {
+    clearPolygonDrawingOnly();
+
+    polygonPoints.forEach(function(point, index) {
+        var marker = L.circleMarker(
+            [point.lat, point.lng],
+            {
+                radius: 7,
+                color: "#ffffff",
+                weight: 2,
+                fillColor: "#e74c3c",
+                fillOpacity: 1.0
+            }
+        ).addTo(map);
+
+        marker.bindTooltip(
+            "P" + (index + 1),
+            {
+                permanent: true,
+                direction: "top",
+                className: "polygon-label",
+                opacity: 1.0
+            }
+        ).openTooltip();
+
+        polygonMarkers.push(marker);
+    });
+
+    if (polygonPoints.length >= 3) {
+        polygonLayer = L.polygon(
+            polygonPoints.map(function(point) {
+                return [point.lat, point.lng];
+            }),
+            {
+                color: "#e74c3c",
+                fillColor: "#e74c3c",
+                fillOpacity: 0.10,
+                weight: 3,
+                opacity: 1.0,
+                dashArray: "6,4"
+            }
+        ).addTo(map);
+    }
+}
+
+function replacePolygonPoints(points) {
+    if (!Array.isArray(points) || points.length !== 4) {
+        console.error(
+            "[RECTANGLE] Dört geçerli nokta alınamadı."
+        );
+        return false;
+    }
+
+    polygonPoints = points.map(function(point) {
+        return {
+            lat: Number(point.lat),
+            lng: Number(point.lng)
+        };
+    });
+
+    redrawPolygon();
+
+    console.log(
+        "[RECTANGLE] Poligon düzgün dikdörtgene çevrildi."
+    );
+
+    return true;
+}
+
+function clearPolygon() {
+    polygonMode = false;
+    polygonPoints = [];
+
+    clearPolygonDrawingOnly();
+
+    if (
+        typeof clearFixedWingSurveyPreviewLayers
+        === "function"
+    ) {
+        clearFixedWingSurveyPreviewLayers();
+    }
+
+    console.log("[POLYGON] temizlendi");
+}
+
+// Python tarafından çağrılır: polygon noktalarını döndür
+function getPolygonPoints() {
+    return polygonPoints;
+}
+
+function clearVtolSurveyPreviewLayers() {
+    vtolScanLayers.forEach(function(layer) {
+        map.removeLayer(layer);
+    });
+
+    vtolScanLayers = [];
+
+    if (vtolBlueLayer !== null) {
+        map.removeLayer(vtolBlueLayer);
+        vtolBlueLayer = null;
+    }
+}
+
+function loadVtolSurveyPreview(waypoints, blueRings, scanLines, meta) {
+    // Manuel görevler korunur; yalnızca otomatik grid bloğu yenilenir.
+    var mergedMission = loadSurveyWaypoints(waypoints);
+
+    // Hesaplanan VTOL güvenlik zarfı.
+    if (Array.isArray(blueRings) && blueRings.length > 0) {
+        vtolBlueLayer = L.polygon(blueRings, {
+            color: "#3498db",
+            fillColor: "#3498db",
+            fillOpacity: 0.07,
+            weight: 3,
+            dashArray: "8,5"
+        }).addTo(map);
+
+        vtolBlueLayer.bringToBack();
+    }
+
+    // Kameranın görüntü topladığı düz uçuş parçaları.
+    if (Array.isArray(scanLines)) {
+        scanLines.forEach(function(line) {
+            var layer = L.polyline(line, {
+                color: "#00e5ff",
+                weight: 5,
+                opacity: 0.65
+            }).addTo(map);
+
+            vtolScanLayers.push(layer);
+        });
+    }
+
+    if (missionLine !== null) {
+        missionLine.bringToFront();
+    }
+
+    console.log("[VTOL SURVEY PREVIEW]", meta);
+
+    return mergedMission;
+}
+
+// Survey waypoint'lerini haritaya yükle (Python üretir, JS çizer)
+function loadSurveyWaypoints(surveyWaypoints) {
+    if (!Array.isArray(surveyWaypoints)) {
+        console.error(
+            "loadSurveyWaypoints: waypoint listesi geçersiz."
+        );
+        return getMissionData();
+    }
+
+    // Daha önce oluşturulmuş grid varsa bulunduğu yerde değiştir.
+    // İlk grid oluşturuluyorsa mevcut manuel görevin sonuna ekle.
+    var firstSurveyIndex = markers.findIndex(function(marker) {
+        var kind = String(
+            marker.survey_kind || "WAYPOINT"
+        ).toUpperCase();
+
+        return marker.is_survey_waypoint === true
+            || kind !== "WAYPOINT";
+    });
+
+    var insertionIndex = firstSurveyIndex >= 0
+        ? firstSurveyIndex
+        : markers.length;
+
+    var manualMarkers = [];
+
+    markers.forEach(function(marker) {
+        var kind = String(
+            marker.survey_kind || "WAYPOINT"
+        ).toUpperCase();
+
+        var isSurvey = marker.is_survey_waypoint === true
+            || kind !== "WAYPOINT";
+
+        if (isSurvey) {
+            if (map.hasLayer(marker)) {
+                map.removeLayer(marker);
+            }
+        }
+        else {
+            manualMarkers.push(marker);
+        }
+    });
+
+    markers = manualMarkers;
+    insertionIndex = Math.min(
+        insertionIndex,
+        markers.length
+    );
+
+    var newSurveyMarkers = [];
+
+    surveyWaypoints.forEach(function(wp, index) {
+        var latlng = L.latLng(wp.lat, wp.lng);
+
+        var kind = String(
+            wp.survey_kind || "WAYPOINT"
+        ).toUpperCase();
+
+        var isTurn = kind === "TURN";
+
+        var backgroundColor = "#3498db";
+        var borderColor = "#2980b9";
+
+        if (kind === "SCAN_START") {
+            backgroundColor = "#2ecc71";
+            borderColor = "#1e8449";
+        }
+        else if (kind === "SCAN_END") {
+            backgroundColor = "#e74c3c";
+            borderColor = "#922b21";
+        }
+        else if (
+            kind === "LEAD_IN"
+            || kind === "LEAD_OUT"
+        ) {
+            backgroundColor = "#f39c12";
+            borderColor = "#b9770e";
+        }
+        else if (isTurn) {
+            backgroundColor = "#00bfff";
+            borderColor = "#087ea4";
+        }
+
+        var size = isTurn ? 8 : 18;
+        var fontSize = isTurn ? 0 : 10;
+        var missionSequence = insertionIndex + index + 1;
+        var label = isTurn ? "" : String(missionSequence);
+
+        var marker = L.marker(
+            latlng,
+            {
+                draggable: true,
+
+                icon: L.divIcon({
+                    className: "custom-wp-icon",
+
+                    html:
+                        '<div style="'
+                        + 'background:' + backgroundColor + ';'
+                        + 'color:white;'
+                        + 'border-radius:50%;'
+                        + 'width:' + size + 'px;'
+                        + 'height:' + size + 'px;'
+                        + 'display:flex;'
+                        + 'align-items:center;'
+                        + 'justify-content:center;'
+                        + 'font-weight:bold;'
+                        + 'font-size:' + fontSize + 'px;'
+                        + 'border:2px solid ' + borderColor + ';'
+                        + 'box-shadow:0 0 3px rgba(0,0,0,0.7);'
+                        + '">'
+                        + label
+                        + '</div>',
+
+                    iconSize: [size, size],
+                    iconAnchor: [size / 2, size / 2]
+                })
+            }
+        ).addTo(map);
+
+        marker.lat = latlng.lat;
+        marker.lng = latlng.lng;
+        marker.mode = wp.mode || "WAYPOINT";
+        marker.alt = wp.alt || 20;
+        marker.survey_kind = kind;
+        marker.survey_pass = wp.survey_pass || 0;
+        marker.is_survey_waypoint = true;
+        var acceptanceRadius = Number(
+            wp.acceptance_radius_m
+        );
+
+        marker.acceptance_radius_m =
+            Number.isFinite(acceptanceRadius)
+            ? acceptanceRadius
+            : 0;
+
+        marker.bindTooltip(
+            "WP " + missionSequence
+            + " | " + kind
+            + (
+                marker.survey_pass > 0
+                ? " | Hat " + marker.survey_pass
+                : ""
+            ),
+            {
+                direction: "top",
+                opacity: 0.85
+            }
+        );
+
+        marker.on("dragend", function(event) {
+            var position = event.target.getLatLng();
+
+            this.lat = position.lat;
+            this.lng = position.lng;
+
+            updatePolyline();
+        });
+
+        newSurveyMarkers.push(marker);
+    });
+
+    // Grid bloğunu ön ve son manuel görevlerin arasına yerleştir.
+    markers = markers.slice(0, insertionIndex)
+        .concat(
+            newSurveyMarkers,
+            markers.slice(insertionIndex)
+        );
+
+    updatePolyline();
+
+    // Asıl matematiksel dönüş çizgileri ayrıca çizileceği için
+    // waypointleri birleştiren genel çizgiyi soluk göster.
+    if (missionLine !== null) {
+        missionLine.setStyle({
+            color: "#ffffff",
+            weight: 1,
+            opacity: 0.25
+        });
+    }
+
+    if (surveyWaypoints.length > 0) {
+        var bounds = L.latLngBounds(
+            surveyWaypoints.map(function(wp) {
+                return [wp.lat, wp.lng];
+            })
+        );
+
+        map.fitBounds(
+            bounds,
+            {
+                padding: [40, 40]
+            }
+        );
+    }
+
+    return getMissionData();
+}
+
+function clearFixedWingSurveyPreviewLayers() {
+    fixedWingSurveyLayers.forEach(function(layer) {
+        if (map.hasLayer(layer)) {
+            map.removeLayer(layer);
+        }
+    });
+
+    fixedWingSurveyLayers = [];
+}
+
+
+function addFixedWingPolylineCollection(
+    lines,
+    style
+) {
+    if (!Array.isArray(lines)) {
+        return;
+    }
+
+    lines.forEach(function(line) {
+        if (!Array.isArray(line) || line.length < 2) {
+            return;
+        }
+
+        var layer = L.polyline(
+            line,
+            style
+        ).addTo(map);
+
+        fixedWingSurveyLayers.push(layer);
+    });
+}
+
+
+function addFixedWingPolygonRings(
+    rings,
+    style
+) {
+    if (!Array.isArray(rings)) {
+        return;
+    }
+
+    // Her dış halkayı ayrı Leaflet polygonu olarak çiziyoruz.
+    // Böylece düzensiz/çok parçalı alanlarda ikinci halka
+    // yanlışlıkla delik olarak yorumlanmaz.
+    rings.forEach(function(ring) {
+        if (!Array.isArray(ring) || ring.length < 3) {
+            return;
+        }
+
+        var layer = L.polygon(
+            ring,
+            style
+        ).addTo(map);
+
+        fixedWingSurveyLayers.push(layer);
+    });
+}
+
+
+function loadFixedWingSurveyPreview(
+    surveyWaypoints,
+    routeCorridorRings,
+    allowedBoundaryRings,
+    scanLines,
+    leadLines,
+    turnLines,
+    coverageRings,
+    meta
+) {
+    clearFixedWingSurveyPreviewLayers();
+
+    // Manuel görevleri koruyarak otomatik grid bloğunu yükle/yenile.
+    var mergedMission = loadSurveyWaypoints(surveyWaypoints);
+
+    // Kameranın teorik olarak kapsadığı alan.
+    addFixedWingPolygonRings(
+        coverageRings,
+        {
+            color: "#27ae60",
+            fillColor: "#2ecc71",
+            fillOpacity: 0.08,
+            weight: 1,
+            opacity: 0.35
+        }
+    );
+
+    // Gerçek rotanın etrafındaki mavi koridor.
+    addFixedWingPolygonRings(
+        routeCorridorRings,
+        {
+            color: "#00bfff",
+            fillColor: "#00bfff",
+            fillOpacity: 0.025,
+            weight: 2,
+            opacity: 0.65,
+            dashArray: "8,6"
+        }
+    );
+
+    // Planlayıcının dönüş aramak için kullanmasına izin verilen
+    // en dış sınır. Yalnızca ince gri çizgiyle gösterilir.
+    addFixedWingPolygonRings(
+        allowedBoundaryRings,
+        {
+            color: "#95a5a6",
+            fillOpacity: 0.0,
+            weight: 1,
+            opacity: 0.35,
+            dashArray: "4,8"
+        }
+    );
+
+    // Kırmızı poligon ile dönüş arasında bulunan
+    // düz hizalanma bölümleri.
+    addFixedWingPolylineCollection(
+        leadLines,
+        {
+            color: "#f39c12",
+            weight: 3,
+            opacity: 0.90,
+            dashArray: "6,5"
+        }
+    );
+
+    // Uçağın dışarıdaki matematiksel dönüş eğrileri.
+    addFixedWingPolylineCollection(
+        turnLines,
+        {
+            color: "#00bfff",
+            weight: 4,
+            opacity: 0.90
+        }
+    );
+
+    // Kameranın görüntü toplayacağı gerçek düz hatlar.
+    // En son çizildiği için bütün katmanların üzerinde görünür.
+    addFixedWingPolylineCollection(
+        scanLines,
+        {
+            color: "#ffe600",
+            weight: 5,
+            opacity: 0.95
+        }
+    );
+
+    if (polygonLayer !== null) {
+        polygonLayer.bringToFront();
+    }
+
+    console.log(
+        "[FIXED-WING SURVEY PREVIEW]",
+        meta
+    );
+
+    return mergedMission;
+}
+
+// Haritaya tek tıklama:
+// Poligon modu açıksa yeni kırmızı köşe noktası ekler.
+map.on("click", function(event) {
+    if (!polygonMode) {
+        return;
+    }
+
+    if (polygonPoints.length >= 4) {
+        console.warn(
+            "[POLYGON] Dört köşe tamamlandı. " +
+            "Yeni alan için önce Poligon Temizle kullanın."
+        );
+        return;
+    }
+
+    polygonPoints.push({
+        lat: Number(event.latlng.lat),
+        lng: Number(event.latlng.lng)
+    });
+
+    redrawPolygon();
+
+    console.log(
+        "[POLYGON POINT]",
+        "P" + polygonPoints.length,
+        polygonPoints[polygonPoints.length - 1]
+    );
+});
+
+//mission_map.html içindeki en alt kısımlara etiketinden hemen önceye) yapıştır
+
+</script>
+
+</body>
+</html>

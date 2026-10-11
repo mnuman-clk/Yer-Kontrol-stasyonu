@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+
+<link rel="stylesheet" href="offline_lib/leaflet.css" />
+<script src="offline_lib/leaflet.js"></script>
+
+<!-- <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" /> -->
+<!-- <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script> -->
+
+<style>
+    .leaflet-div-icon {
+        background: transparent !important;
+        border: none !important;
+  }
+  html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+  }
+  #map {
+      width: 100%;
+      height: 100%;
+  }
+</style>
+</head>
+
+<body>
+
+<div id="map"></div>
+
+<script>
+
+var pistLat=40.9771;
+var pistLon=28.8139;
+
+var markers=[];
+var missionLine=null;
+
+var map = L.map('map').setView([pistLat, pistLon], 18);
+
+
+L.tileLayer(
+'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+{
+    maxZoom: 19
+}).addTo(map);
+
+// L.Control.geocoder().addTo(map);
+
+var homeCircle = L.circleMarker([pistLat,pistLon], {
+    radius: 20,
+    color: 'red',
+    fillColor: '#f03',
+    fillOpacity: 0.3
+}).addTo(map);
+
+
+var planeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#3498db" width="40" height="40"><path d="M21,16V14L13,9V3.5A1.5,1.5 0 0,0 11.5,2A1.5,1.5 0 0,0 10,3.5V9L2,14V16L10,13.5V19L8,20.5V22L11.5,21L15,22V20.5L13,19V13.5L21,16Z"/></svg>`;
+var planeIcon = L.divIcon({
+    html: planeSvg,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+    className: '' // Beyaz kutuyu yok eder
+});
+
+var crossSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="35" height="35"><path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41z"/></svg>`;
+var crossIcon = L.divIcon({
+    html: crossSvg,
+    iconSize: [35, 35],
+    iconAnchor:[17,17],
+    className:''
+});
+
+
+var statusMarker = L.marker([pistLat, pistLon], {
+    icon: crossIcon
+}).addTo(map);
+
+var isInitialCenterDone = false;
+var snailTrail = [];
+var trailLine = null;
+
+function setConnected(lat, lon, heading) {
+    lat = parseFloat(lat);
+    lon = parseFloat(lon);
+    heading = parseFloat(heading) || 0;
+
+    if (isNaN(lat) || isNaN(lon)) {
+        console.error("Geçersiz konum:", lat, lon);
+        return;
+    }
+
+    var rotatingSvg =
+        '<div style="transform:rotate(' + heading +
+        'deg);transform-origin:center center;">' +
+        planeSvg +
+        '</div>';
+
+    var rotatingIcon = L.divIcon({
+        html: rotatingSvg,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20],
+        className: ''
+    });
+
+    // Marker herhangi bir nedenle oluşmadıysa yeniden oluştur.
+    if (!statusMarker) {
+        statusMarker = L.marker([lat, lon], {
+            icon: rotatingIcon
+        }).addTo(map);
+    } else {
+        statusMarker.setIcon(rotatingIcon);
+        statusMarker.setLatLng([lat, lon]);
+    }
+
+    snailTrail.push([lat, lon]);
+
+    if (trailLine !== null) {
+        map.removeLayer(trailLine);
+    }
+
+    trailLine = L.polyline(snailTrail, {
+        color: 'cyan',
+        weight: 3
+    }).addTo(map);
+
+    if (!isInitialCenterDone) {
+        map.setView([lat, lon], 18);
+        isInitialCenterDone = true;
+    }
+}
+
+function setDisconnected() {
+    if (statusMarker) {
+        statusMarker.setIcon(crossIcon);
+        statusMarker.setLatLng([pistLat, pistLon]);
+    }
+
+    isInitialCenterDone = false;
+    snailTrail = [];
+
+    if (trailLine !== null) {
+        map.removeLayer(trailLine);
+        trailLine = null;
+    }
+
+    map.setView([pistLat, pistLon], 18);
+}
+
+function moveToDrone(lat, lon) {
+    map.setView([lat, lon], 18);
+}
+
+function drawMission(missionData) {
+    if (!missionData) return;
+    clearMission();
+    var wpIcon = L.divIcon({
+        className: 'custom-wp-icon',
+        html: '<div style="background-color: #f1c40f; width: 16px; height: 16px; border-radius: 50%; border: 3px solid #e67e22; box-shadow: 0 0 5px black;"></div>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11]
+    });
+    missionData.forEach(function(wp, index) {
+        var marker = L.marker([wp.lat, wp.lon], {icon: wpIcon}) 
+            .addTo(map)
+            .bindPopup("WP"+(index + 1));
+
+        markers.push(marker);
+    });
+    updatePolyline();
+}
+
+function updatePolyline() {
+
+    var latlngs = [];
+
+    markers.forEach(function(marker) {
+        latlngs.push(marker.getLatLng());
+    });
+
+    if (missionLine != null) {
+        map.removeLayer(missionLine);
+    }
+
+    missionLine = L.polyline(latlngs, {color:'yellow'}).addTo(map);
+}
+
+function clearMission() {
+    markers.forEach(function(marker) {
+        map.removeLayer(marker);
+    });
+    if (missionLine != null) {
+        map.removeLayer(missionLine);
+        missionLine = null;
+    }
+    markers = [];
+}
+
+
+
+</script>
+
+</body>
+</html>
+

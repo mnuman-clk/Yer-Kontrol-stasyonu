@@ -1,0 +1,16 @@
+<RCC>
+  <qresource prefix="icons">
+    <file>x.svg</file>
+    <file>square.svg</file>
+    <file>minus.svg</file>
+    <file>message-circle.svg</file>
+    <file>x-circle.svg</file>
+    <file>bar-chart-2.svg</file>
+    <file>camera.svg</file>
+    <file>rss.svg</file>
+    <file>map.svg</file>
+    <file>home.svg</file>
+    <file>align-justify.svg</file>
+    <file>settings.svg</file>
+  </qresource>
+</RCC>

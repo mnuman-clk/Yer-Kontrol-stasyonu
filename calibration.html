@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+    background: #1a1e27;
+    color: #ecf0f1;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    padding: 8px;
+    overflow-x: hidden;
+}
+
+.status-bar {
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 8px;
+    border: 1px solid #444;
+}
+.status-bar.idle    { background:rgba(52,152,219,.12); color:#3498db; border-color:#2980b9; }
+.status-bar.running { background:rgba(243,156,18,.12); color:#f39c12; border-color:#f39c12; }
+.status-bar.success { background:rgba(46,204,113,.12); color:#2ecc71; border-color:#2ecc71; }
+.status-bar.error   { background:rgba(231,76,60,.12);  color:#e74c3c; border-color:#e74c3c; }
+
+.section {
+    background: #2c313c;
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 8px;
+    border: 1px solid #3d4350;
+}
+.section-title {
+    font-size: 13px;
+    font-weight: bold;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid;
+}
+.accel-title   { color:#2ecc71; border-color:#2ecc71; }
+.compass-title { color:#e67e22; border-color:#e67e22; }
+
+/* ===== ACCEL — 6 ADIM ===== */
+.accel-body { display:flex; gap:12px; align-items:flex-start; }
+
+/* 3D Drone SVG */
+.drone-view-wrap { text-align:center; flex-shrink:0; }
+.drone-view-label { font-size:11px; color:#7f8c8d; margin-bottom:4px; }
+#droneCanvas {
+    width:130px; height:130px;
+    border-radius:8px;
+    background:#1a1e27;
+    border:1px solid #3d4350;
+}
+
+/* Kabarcık terazisi */
+.bubble-wrap { text-align:center; flex-shrink:0; }
+.bubble-label { font-size:11px; color:#7f8c8d; margin-bottom:4px; }
+.bubble-outer {
+    width:90px; height:90px; border-radius:50%;
+    border:2px solid #555;
+    background:radial-gradient(circle at 50% 50%,#1a2035,#0d1117);
+    position:relative; overflow:hidden;
+    box-shadow:inset 0 0 12px rgba(0,0,0,.5);
+}
+.center-ring {
+    position:absolute; top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    width:20px; height:20px; border-radius:50%;
+    border:1px solid rgba(46,204,113,.4);
+}
+.bubble {
+    position:absolute;
+    width:18px; height:18px; border-radius:50%;
+    background:radial-gradient(circle at 35% 35%,#5dade2,#2980b9);
+    box-shadow:0 0 6px rgba(52,152,219,.8);
+    transform:translate(-50%,-50%);
+    transition:left .15s ease, top .15s ease;
+    top:50%; left:50%;
+}
+.bubble.ok { background:radial-gradient(circle at 35% 35%,#58d68d,#27ae60); box-shadow:0 0 6px rgba(46,204,113,.8); }
+
+/* Adım listesi */
+.steps-wrap { flex:1; }
+.step-item {
+    display:flex; align-items:center; gap:8px;
+    padding:6px 10px;
+    background:#1f232a;
+    border-radius:6px;
+    border-left:3px solid #555;
+    font-size:12px;
+    margin-bottom:5px;
+    transition:all .3s;
+}
+.step-item.active { border-color:#f39c12; background:rgba(243,156,18,.08); color:#f39c12; font-weight:bold; }
+.step-item.done   { border-color:#2ecc71; background:rgba(46,204,113,.08); color:#2ecc71; }
+.step-num {
+    width:22px; height:22px; border-radius:50%;
+    background:#555; display:flex; align-items:center; justify-content:center;
+    font-weight:bold; font-size:11px; flex-shrink:0;
+}
+.step-item.active .step-num { background:#f39c12; color:#1a1e27; }
+.step-item.done   .step-num { background:#2ecc71; color:#1a1e27; }
+
+.accel-hint {
+    text-align:center;
+    font-size:12px;
+    color:#f39c12;
+    padding:6px;
+    background:rgba(243,156,18,.08);
+    border-radius:6px;
+    margin-top:6px;
+    min-height:28px;
+}
+
+/* ===== COMPASS ===== */
+.compass-body { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+.compass-rose {
+    width:100px; height:100px; border-radius:50%;
+    border:2px solid #555;
+    background:radial-gradient(circle,#1f2a3c,#0d1117);
+    position:relative; display:flex; align-items:center; justify-content:center;
+    box-shadow:inset 0 0 12px rgba(0,0,0,.5); flex-shrink:0;
+}
+.compass-needle {
+    position:absolute; width:4px; height:68px;
+    top:50%; left:50%;
+    transform-origin:50% 100%;
+    transform:translateX(-50%) translateY(-100%) rotate(0deg);
+    transition:transform .2s ease;
+}
+.needle-north {
+    position:absolute; bottom:50%; left:0; right:0; height:50%;
+    background:linear-gradient(to bottom,#e74c3c,#c0392b);
+    clip-path:polygon(50% 0%,0% 100%,100% 100%);
+}
+.needle-south {
+    position:absolute; top:50%; left:0; right:0; height:50%;
+    background:linear-gradient(to top,#ecf0f1,#bdc3c7);
+    clip-path:polygon(50% 100%,0% 0%,100% 0%);
+}
+.compass-n { position:absolute; top:3px; left:50%; transform:translateX(-50%); font-size:10px; font-weight:bold; color:#e74c3c; }
+.compass-s { position:absolute; bottom:3px; left:50%; transform:translateX(-50%); font-size:10px; color:#bdc3c7; }
+.compass-e { position:absolute; right:5px; top:50%; transform:translateY(-50%); font-size:10px; color:#bdc3c7; }
+.compass-w { position:absolute; left:5px; top:50%; transform:translateY(-50%); font-size:10px; color:#bdc3c7; }
+
+.compass-info { flex:1; min-width:140px; }
+.data-row {
+    display:flex; justify-content:space-between;
+    padding:5px 8px; background:#1f232a;
+    border-radius:5px; margin-bottom:5px; font-size:12px;
+}
+.data-row .label { color:#7f8c8d; }
+.data-row .val   { font-weight:bold; }
+
+.progress-bg { background:#1f232a; border-radius:5px; height:10px; overflow:hidden; margin-top:6px; }
+.progress-fill {
+    height:100%;
+    background:linear-gradient(90deg,#e67e22,#f39c12);
+    border-radius:5px; width:0%;
+    transition:width .4s;
+}
+.progress-label { font-size:11px; color:#e67e22; margin-top:3px; text-align:center; }
+
+.compass-hint {
+    font-size:12px; color:#e67e22;
+    padding:5px 8px;
+    background:rgba(230,126,34,.08);
+    border-radius:5px; margin-top:6px;
+    text-align:center;
+}
+</style>
+</head>
+<body>
+
+<div id="statusBar" class="status-bar idle">⏳ Drone bağlantısı bekleniyor...</div>
+
+<!-- ACCELEROMETER — 6 POZİSYON -->
+<div class="section">
+    <div class="section-title accel-title">📐 ACCELEROMETre KALİBRASYONU (6 Pozisyon)</div>
+    <div class="accel-body">
+
+        <!-- 3D Drone Görünümü -->
+        <div class="drone-view-wrap">
+            <div class="drone-view-label">Drone Pozisyonu</div>
+            <canvas id="droneCanvas" width="130" height="130"></canvas>
+        </div>
+
+        <!-- Kabarcık Terazi -->
+        <div class="bubble-wrap">
+            <div class="bubble-label">Eğim</div>
+            <div class="bubble-outer">
+                <div class="center-ring"></div>
+                <div class="bubble" id="bubble"></div>
+            </div>
+            <div style="font-size:10px;color:#7f8c8d;margin-top:4px;">
+                P:<span id="pitchVal">0°</span> R:<span id="rollVal">0°</span>
+            </div>
+        </div>
+
+        <!-- Adım Listesi -->
+        <div class="steps-wrap">
+            <div class="step-item" id="astep0">
+                <div class="step-num">1</div><span>Düz / Yatay (Normal)</span>
+            </div>
+            <div class="step-item" id="astep1">
+                <div class="step-num">2</div><span>Sol taraf aşağı</span>
+            </div>
+            <div class="step-item" id="astep2">
+                <div class="step-num">3</div><span>Sağ taraf aşağı</span>
+            </div>
+            <div class="step-item" id="astep3">
+                <div class="step-num">4</div><span>Burun aşağı</span>
+            </div>
+            <div class="step-item" id="astep4">
+                <div class="step-num">5</div><span>Burun yukarı</span>
+            </div>
+            <div class="step-item" id="astep5">
+                <div class="step-num">6</div><span>Tamamen ters</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="accel-hint" id="accelHint">
+        Kalibrasyonu başlatmak için "Level Kalibrasyonu Başlat" butonuna basın.
+    </div>
+</div>
+
+<!-- COMPASS -->
+<div class="section">
+    <div class="section-title compass-title">🧭 COMPASS KALİBRASYONU</div>
+    <div class="compass-body">
+        <div>
+            <div class="compass-rose">
+                <span class="compass-n">N</span><span class="compass-s">S</span>
+                <span class="compass-e">E</span><span class="compass-w">W</span>
+                <div class="compass-needle" id="compassNeedle">
+                    <div class="needle-north"></div>
+                    <div class="needle-south"></div>
+                </div>
+            </div>
+            <div style="font-size:18px;font-weight:bold;text-align:center;margin-top:4px;color:#e67e22;" id="headingBig">0°</div>
+        </div>
+        <div class="compass-info">
+            <div class="data-row"><span class="label">Heading</span><span class="val" id="dHeading">0°</span></div>
+            <div class="data-row"><span class="label">Durum</span><span class="val" id="dStatus">Bekleniyor</span></div>
+            <div class="progress-bg"><div class="progress-fill" id="cProgress"></div></div>
+            <div class="progress-label" id="cProgressLabel">Başlatılmadı</div>
+        </div>
+    </div>
+    <div class="compass-hint" id="compassHint">
+        "Compass Kalibrasyonu Başlat" butonuna basın, sonra dronu 3 eksende döndürün.
+    </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────
+//  DURUM DEĞİŞKENLERİ
+// ─────────────────────────────────────────
+var accelStep = -1;   // -1=başlamadı, 0-5=aktif adım, 6=tamamlandı
+var compassPct = 0;
+
+// Adım başına kullanıcıya gösterilecek talimat
+var stepHints = [
+    "✅ Dronu DÜZ bir yüzeye koyun → Hazır olunca Python tarafında 'Pozisyonu Kaydet'e basın.",
+    "↙️ Dronu SOL TARAF AŞAĞI gelecek şekilde tutun → Hazır olunca 'Pozisyonu Kaydet'e basın.",
+    "↘️ Dronu SAĞ TARAF AŞAĞI gelecek şekilde tutun → Hazır olunca 'Pozisyonu Kaydet'e basın.",
+    "⬇️ Dronu BURUN AŞAĞI (nose down) tutun → Hazır olunca 'Pozisyonu Kaydet'e basın.",
+    "⬆️ Dronu BURUN YUKARI (nose up) tutun → Hazır olunca 'Pozisyonu Kaydet'e basın.",
+    "🔄 Dronu TAMAMEN TERS çevirin → Hazır olunca 'Pozisyonu Kaydet'e basın."
+];
+
+// ─────────────────────────────────────────
+//  CANVAS — 3D DRONE ÇİZİMİ
+// ─────────────────────────────────────────
+var canvas = document.getElementById('droneCanvas');
+var ctx = canvas.getContext('2d');
+
+// Her adıma göre drone orientasyon açıları [pitchDeg, rollDeg, yawDeg]
+var stepOrientations = [
+    [0,   0,   0],   // Düz
+    [0,  90,   0],   // Sol taraf aşağı
+    [0, -90,   0],   // Sağ taraf aşağı
+    [45,  0,   0],   // Burun aşağı
+    [-45, 0,   0],   // Burun yukarı
+    [0, 180,   0]    // Ters
+];
+
+function drawDrone(pitchDeg, rollDeg) {
+    var W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    var cx = W/2, cy = H/2;
+    var p = pitchDeg * Math.PI/180;
+    var r = rollDeg  * Math.PI/180;
+
+    // Gövde uzunlukları (perspektif için roll kullanıyoruz)
+    var armLen = 45;
+    var cosR = Math.cos(r), sinR = Math.sin(r);
+    var cosP = Math.cos(p);
+
+    // 4 motor noktası (X şekli): ön-sol, ön-sağ, arka-sol, arka-sağ
+    var arms = [
+        [-1, -1],  // ön-sol
+        [ 1, -1],  // ön-sağ
+        [-1,  1],  // arka-sol
+        [ 1,  1],  // arka-sağ
+    ];
+
+    // Drone gövdesi (çapraz çizgiler)
+    ctx.strokeStyle = '#5d6d7e';
+    ctx.lineWidth = 2;
+
+    var motorPoints = arms.map(function(a) {
+        var lx = a[0] * armLen * cosR - a[1] * armLen * sinR * 0.3;
+        var ly = a[0] * armLen * sinR * cosP + a[1] * armLen * cosP;
+        // Pitch etkisi: y ekseninde baskı
+        ly = ly * Math.cos(p) + a[1]*armLen * Math.sin(Math.abs(p)) * (p>0?1:-1) * 0.5;
+        return { x: cx + lx, y: cy + ly * 0.6 };
+    });
+
+    // Kolları çiz
+    ctx.beginPath();
+    ctx.moveTo(motorPoints[0].x, motorPoints[0].y);
+    ctx.lineTo(motorPoints[3].x, motorPoints[3].y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(motorPoints[1].x, motorPoints[1].y);
+    ctx.lineTo(motorPoints[2].x, motorPoints[2].y);
+    ctx.stroke();
+
+    // Motorlar
+    var motorColors = ['#e74c3c','#3498db','#2ecc71','#f39c12'];
+    motorPoints.forEach(function(pt, i) {
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 10, 0, Math.PI*2);
+        ctx.fillStyle = motorColors[i];
+        ctx.fill();
+        ctx.strokeStyle = '#ecf0f1';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    });
+
+    // Merkez gövde
+    ctx.beginPath();
+    ctx.arc(cx, cy, 8, 0, Math.PI*2);
+    ctx.fillStyle = '#7f8c8d';
+    ctx.fill();
+
+    // Yön oku (ön taraf — kırmızı)
+    var frontMid = {
+        x: (motorPoints[0].x + motorPoints[1].x)/2,
+        y: (motorPoints[0].y + motorPoints[1].y)/2
+    };
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(frontMid.x, frontMid.y);
+    ctx.strokeStyle = '#e74c3c';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // Ters uçuşta X işareti
+    if (Math.abs(rollDeg) > 150) {
+        ctx.font = 'bold 14px Arial';
+        ctx.fillStyle = '#f39c12';
+        ctx.textAlign = 'center';
+        ctx.fillText('TERS', cx, cy - 40);
+    }
+}
+
+function setAccelStep(step) {
+    accelStep = step;
+
+    // Adım renklerini güncelle
+    for (var i = 0; i < 6; i++) {
+        var el = document.getElementById('astep' + i);
+        if (i < step)       { el.className = 'step-item done'; }
+        else if (i === step) { el.className = 'step-item active'; }
+        else                 { el.className = 'step-item'; }
+    }
+
+    if (step >= 0 && step < 6) {
+        document.getElementById('accelHint').textContent = stepHints[step];
+        var orient = stepOrientations[step];
+        drawDrone(orient[0], orient[1]);
+    } else if (step >= 6) {
+        document.getElementById('accelHint').textContent = '✅ Tüm pozisyonlar tamamlandı! Kalibrasyon kaydedildi.';
+        drawDrone(0, 0);
+    }
+}
+
+// ─────────────────────────────────────────
+//  LEVEL — BUBBLE + AÇILAR
+// ─────────────────────────────────────────
+function updateLevel(pitch, roll) {
+    var maxA = 30;
+    var px = Math.max(-1, Math.min(1, roll / maxA));
+    var py = Math.max(-1, Math.min(1, pitch / maxA));
+    var radius = 34;
+    var bx = 50 + px * radius;
+    var by = 50 + py * radius;
+    var bubble = document.getElementById('bubble');
+    bubble.style.left = bx + '%';
+    bubble.style.top  = by + '%';
+    var ok = Math.abs(pitch) < 2 && Math.abs(roll) < 2;
+    bubble.className = 'bubble' + (ok ? ' ok' : '');
+    document.getElementById('pitchVal').textContent = pitch.toFixed(1) + '°';
+    document.getElementById('rollVal').textContent  = roll.toFixed(1)  + '°';
+}
+
+// ─────────────────────────────────────────
+//  COMPASS
+// ─────────────────────────────────────────
+function updateCompass(heading, status, pct) {
+    document.getElementById('compassNeedle').style.transform =
+        'translateX(-50%) translateY(-100%) rotate(' + heading + 'deg)';
+    document.getElementById('headingBig').textContent = Math.round(heading) + '°';
+    document.getElementById('dHeading').textContent   = Math.round(heading) + '°';
+    document.getElementById('dStatus').textContent    = status || 'Bekleniyor';
+
+    compassPct = Math.min(100, Math.max(0, pct || 0));
+    document.getElementById('cProgress').style.width = compassPct + '%';
+    document.getElementById('cProgressLabel').textContent =
+        compassPct > 0 ? ('Kalibrasyon: %' + Math.round(compassPct)) : 'Başlatılmadı';
+}
+
+// ─────────────────────────────────────────
+//  ANA GÜNCELLEME — Python buraya çağırır
+// ─────────────────────────────────────────
+function updateCalibration(pitch, roll, heading, compassStatus, cPct) {
+    updateLevel(pitch, roll);
+    updateCompass(heading, compassStatus, cPct);
+}
+
+function setStatus(type, text) {
+    var sb = document.getElementById('statusBar');
+    sb.className = 'status-bar ' + type;
+    sb.textContent = text;
+}
+
+function setCompassHint(text) {
+    document.getElementById('compassHint').textContent = text;
+}
+
+// Başlangıç canvas çizimi
+drawDrone(0, 0);
+</script>
+</body>
+</html>
